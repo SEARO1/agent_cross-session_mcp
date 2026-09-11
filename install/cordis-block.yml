@@ -1,0 +1,14 @@
+# Cross-session awareness MCP server: a DSH session can see what the other sessions on
+# this machine are doing (peers / session_detail / announce / board / whoami / overlaps).
+# Reads DSH session logs read-only. serverName must stay 'crosssession' - caller
+# identification matches mcp__crosssession__* records.
+# __ROOT__ / __SERVER__ are filled in by scripts/install-to-dsh.ps1.
+- insert:
+    - id: mcp-cross-session
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: crosssession
+        transport: stdio
+        command: node
+        args: ['__SERVER__']
+        cwd: '__ROOT__'

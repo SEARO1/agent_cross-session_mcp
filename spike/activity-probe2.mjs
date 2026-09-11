@@ -1,0 +1,12 @@
+import { listSessionLogs, readSessionRecords, collectActivity, toolCallOf } from '../lib/session-logs.mjs';
+const log = listSessionLogs()[1];
+console.log('session', log.sessionId.slice(8,16), 'mtime', new Date(log.mtimeMs).toISOString());
+const read = readSessionRecords(log.file, { headFrames: 1, tailFrames: 60 });
+const cwd = read.records.find((r) => r.type === 'session')?.cwd ?? null;
+console.log('records', read.records.length, 'frames', read.frameCount, 'cwd', cwd);
+const calls = read.records.map(toolCallOf).filter(Boolean);
+console.log('calls', calls.length);
+for (const call of calls.slice(0, 6)) console.log('   ', call.name, 'at=' + call.at, 'keys=' + Object.keys(call.args ?? {}).join(','));
+console.log('now', Date.now(), 'min call at', Math.min(...calls.map((c) => c.at ?? 0)));
+const activity = collectActivity(read.records, { cwd, sinceMs: Date.now() - 6 * 3600 * 1000 });
+console.log('files', activity.files.length, 'git', activity.git.length);

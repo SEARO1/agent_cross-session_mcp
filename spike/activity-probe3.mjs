@@ -1,0 +1,14 @@
+import { listSessionLogs, readSessionRecords, collectActivity, toolCallOf } from '../lib/session-logs.mjs';
+const log = listSessionLogs()[1];
+const read = readSessionRecords(log.file, { headFrames: 1, tailFrames: 60 });
+const cwd = read.records.find((r) => r.type === 'session')?.cwd ?? null;
+const calls = read.records.map(toolCallOf).filter(Boolean);
+const ats = calls.map((c) => c.at).filter((n) => typeof n === 'number').sort((a, b) => a - b);
+const now = Date.now();
+console.log('calls', calls.length, 'minAt', new Date(ats[0]).toISOString(), 'maxAt', new Date(ats[ats.length-1]).toISOString(), 'now', new Date(now).toISOString());
+const times = read.records.map((r) => r.time).filter((n) => typeof n === 'number');
+const distinctTypes = {};
+for (const r of read.records) distinctTypes[r.type] = (distinctTypes[r.type] ?? 0) + 1;
+console.log('record types:', JSON.stringify(distinctTypes));
+console.log('last 3 records:', read.records.slice(-3).map((r) => r.type + '@' + new Date(r.time).toISOString()).join(' | '));
+console.log('with sinceMs=null:', JSON.stringify(collectActivity(read.records, { cwd }).files.slice(0,3).map(f => f.path)));
