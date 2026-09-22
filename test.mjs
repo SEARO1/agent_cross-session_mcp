@@ -21,7 +21,7 @@ process.env.CROSS_SESSION_BOARD = path.join(SCRATCH, 'board', 'board.jsonl');
 const sessionLogs = await import('./lib/session-logs.mjs');
 const board = await import('./lib/board.mjs');
 const tools = await import('./lib/tools.mjs');
-const { SESSION_LOG_FILENAME, collectActivity, identifyCaller, listSessionLogs, readSessionRecords, scanZstdFrames, summarizeSession, sessionsRoot } = sessionLogs;
+const { SESSION_LOG_FILENAME, collectActivity, identifyCaller, listSessionLogs, readSessionRecords, resolveSessionLogFile, scanZstdFrames, summarizeSession, sessionsRoot } = sessionLogs;
 const { callTool, TOOLS } = tools;
 
 let passed = 0;
@@ -144,6 +144,43 @@ await test('caller identification matches a call made inside run_code', async ()
   const caller = await identifyCaller(['mcp__crosssession__whoami'], { root: fakeRoot, attempts: 1 });
   assert.ok(caller, 'expected the nested dispatch record to identify its session');
   assert.equal(caller.sessionId, 'session-aaaaaaaa-1111-2222-3333-444444444444');
+});
+
+// An upgraded store keeps only the versioned log DSH writes now, next to the legacy one,
+// and writes PTC dispatch records for calls made inside run_code.
+const v4Root = path.join(SCRATCH, 'sessions-v4');
+const v4SessionId = 'session-bbbbbbbb-1111-2222-3333-444444444444';
+const v4Records = [
+  { type: 'session', id: v4SessionId, cwd: 'C:\\fake\\v4', createdAt: now - 60000, agentPreset: 'ptc' },
+  { type: 'tool/call', seq: 1, time: now - 30000, data: { turn: 1, step: 1, callId: 'call-9', name: 'run_code', arguments: '{}' } },
+  { type: 'tool/ptc-dispatch-start', seq: 2, time: now - 29000, data: { rootCallId: 'call-9', parentCallId: 'call-9', subCallId: 'call-9:code:1', name: 'mcp__crosssession__overlaps', arguments: {} } },
+  { type: 'tool/ptc-dispatch', seq: 3, time: now - 28000, data: { rootCallId: 'call-9', parentCallId: 'call-9', subCallId: 'call-9:code:1', name: 'mcp__crosssession__overlaps', isError: false, content: [] } },
+  { type: 'tool/ptc-dispatch-start', seq: 4, time: now - 27000, data: { rootCallId: 'call-9', parentCallId: 'call-9', subCallId: 'call-9:code:2', name: 'mcp__crosssession__whoami', arguments: {} } },
+];
+const v4Dir = path.join(v4Root, '--C-fake--', v4SessionId);
+const v4File = path.join(v4Dir, 'session.v4.jsonl.zstd');
+fs.mkdirSync(v4Dir, { recursive: true });
+fs.writeFileSync(v4File, zlib.zstdCompressSync(Buffer.from(v4Records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8')));
+// the stale sibling generation must not shadow the newest one
+fs.writeFileSync(path.join(v4Dir, SESSION_LOG_FILENAME), Buffer.from('stale'));
+
+await test('session log resolution prefers the newest format version', () => {
+  assert.equal(resolveSessionLogFile(v4Dir), v4File);
+  const found = listSessionLogs(v4Root);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].file, v4File);
+  assert.equal(found[0].sessionId, v4SessionId);
+});
+
+await test('ptc dispatch records name the caller and the running nested tool', async () => {
+  const read = readSessionRecords(v4File, { headFrames: 1, tailFrames: 4 });
+  const summary = summarizeSession(read.records, { ...read, sessionId: v4SessionId });
+  assert.equal(summary.pendingTool, 'run_code');
+  assert.equal(summary.pendingNestedTool, 'mcp__crosssession__whoami');
+  const caller = await identifyCaller(['mcp__crosssession__whoami'], { root: v4Root, attempts: 1 });
+  assert.ok(caller, 'expected the ptc dispatch record to identify its session');
+  assert.equal(caller.sessionId, v4SessionId);
+  assert.equal(caller.cwd, 'C:\\fake\\v4');
 });
 
 await test('caller identification ignores other servers', async () => {

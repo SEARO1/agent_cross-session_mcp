@@ -2,7 +2,7 @@
 
 **TL;DR** — 一個 MCP server，令 DSH 唔同 session 嘅 agent 知道彼此做緊咩：邊個 session 喺邊個 workspace、跑緊乜 tool、最後一句 human 問咩、最後答咗啲乜，仲可以互相留低 note。
 
-It reads DSH's own session logs (`~/.dsh/sessions/**/session.v2.jsonl.zstd`) and never writes to another
+It reads DSH's own session logs (`~/.dsh/sessions/**/session.v<N>.jsonl.zstd`) and never writes to another
 session. A small append-only board carries voluntary announcements.
 
 ## Why this exists
@@ -59,7 +59,7 @@ torn final frame and is skipped until the next poll.
 **The calling session is recovered, not assumed.** DSH does not forward a session identity to
 MCP servers — a `tools/call` request carries only the tool name and arguments. But DSH appends the
 caller's own record to its log *before* the call is served: `tool/call` for a tool the model calls
-directly, `tool/code-dispatch-start` for the same tool called from inside `run_code`. So
+directly, `tool/ptc-dispatch-start` for the same tool called from inside `run_code`. So
 `identifyCaller()` reads the logs written in the last two minutes, matches either record, and
 reports that session as `← this session`. When identification fails, `announce` still stores the
 note and says it was anonymous.
@@ -160,7 +160,9 @@ The stdio round trip is skipped when the sandbox forbids spawning a child with p
 
 - **Live sessions only show what is already on disk.** Activity is derived from log mtimes and
   records, so a session that just started may show one poll late.
-- **Session format v2 only** (`session.v2.jsonl.zstd`). An older or future format is not parsed.
+- **The newest log generation wins** (`session.v<N>.jsonl.zstd`; legacy stores keep `session.v2.jsonl.zstd`).
+  A future container that keeps the zstd-frames-of-JSONL layout is read without a code change; a different
+  layout is not parsed.
 - **Subagent work is not a separate session** — it appears inside its parent's log.
 - **Titles come from the log**, so an untitled session shows no title until DSH writes one.
 - **The board is machine-local and unauthenticated**: any session on this machine can post.
